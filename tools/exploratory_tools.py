@@ -4,7 +4,7 @@ import numpy as np
 import pandas as pd
 from langchain.tools import tool
 
-from tools.common_tools import df_store
+from tools.common_tools import _safe_json_dumps, df_store
 
 @tool
 def summarize_dataset(name: str) -> str:
@@ -20,7 +20,7 @@ def summarize_dataset(name: str) -> str:
         "data_types": dataset.dtypes.apply(lambda x: str(x)).to_dict(),
         "missing_values": dataset.isnull().sum().to_dict()
     }
-    return json.dumps(summary, indent=2)
+    return _safe_json_dumps(summary)
 
 @tool
 def generate_correlation_matrix(name: str, method: str = "pearson") -> str:
@@ -50,7 +50,7 @@ def get_top_n_unique_values(name: str, column: str, n: int = 5) -> str:
         return f"Column '{column}' not found in dataset '{name}'."
     
     top_values = dataset[column].value_counts().head(n).to_dict()
-    return json.dumps(top_values, indent=2)
+    return _safe_json_dumps(top_values)
 
 @tool
 def generate_histogram(name: str, column: str, bins: int = 10) -> str:
@@ -71,7 +71,7 @@ def generate_histogram(name: str, column: str, bins: int = 10) -> str:
         "bin_edges": [float(v) for v in edges.tolist()],
         "counts": [int(v) for v in counts.tolist()],
     }
-    return json.dumps(histogram_data, indent=2)
+    return _safe_json_dumps(histogram_data)
 
 @tool
 def generate_bar_chart(name: str, column: str, n: int = 20) -> str:
@@ -87,4 +87,4 @@ def generate_bar_chart(name: str, column: str, n: int = 20) -> str:
         return f"Column '{column}' is numeric and may not be suitable for a bar chart."
     
     bar_chart_data = dataset[column].value_counts().head(n).to_dict()
-    return json.dumps(bar_chart_data, indent=2)
+    return _safe_json_dumps(bar_chart_data)

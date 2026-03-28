@@ -49,6 +49,75 @@ class ExecutorAgent(BaseAgent):
 		if response.content:
 			return self.parse_json_response(response.content, expected_type=dict)
 
+		tool_calls = getattr(response, "tool_calls", []) or []
+		if tool_calls:
+			tool_results = [self.execute_tool_call(tool_call) for tool_call in tool_calls]
+
+			success_count = sum(1 for res in tool_results if res.get("ok"))
+			failure_count = len(tool_results) - success_count
+
+			# Try to let the model summarize executed tool outputs into the required schema.
+			summary_prompt = (
+				"You are an EDA execution summarizer. Using executed tool results, return only a valid JSON object.\n"
+				"Required schema keys: step, status, actions_taken, observations, artifacts, next_recommended_action.\n"
+				"Status must be one of: completed, needs_input, failed.\n"
+				f"Step JSON:\n{json.dumps(step)}\n\n"
+				f"Tool results:\n{json.dumps(tool_results)}"
+			)
+
+			try:
+				summary_response = self.llm.invoke(summary_prompt)
+				if getattr(summary_response, "content", ""):
+					return self.parse_json_response(summary_response.content, expected_type=dict)
+			except Exception:  # noqa: BLE001
+				pass
+
+			status = "completed" if success_count > 0 else "failed"
+			actions_taken = [f"Executed tool '{res.get('name', 'unknown')}'" for res in tool_results]
+			observations = []
+			artifacts = []
+
+			for res in tool_results:
+				if res.get("ok"):
+					observations.append(f"Tool '{res.get('name')}' completed successfully.")
+					artifacts.append(
+						json.dumps(
+							{
+								"tool": res.get("name"),
+								"args": res.get("args", {}),
+								"output": str(res.get("output", ""))[:5000],
+							}
+						)
+					)
+				else:
+					observations.append(
+						f"Tool '{res.get('name')}' failed: {res.get('error', 'Unknown error')}"
+					)
+					artifacts.append(
+						json.dumps(
+							{
+								"tool": res.get("name"),
+								"args": res.get("args", {}),
+								"error": res.get("error", "Unknown error"),
+							}
+						)
+					)
+
+			next_action = (
+				"Proceed to the next step using generated artifacts."
+				if failure_count == 0
+				else "Review failed tool calls and update step methods or tool parameters."
+			)
+
+			return {
+				"step": step.get("step"),
+				"status": status,
+				"actions_taken": actions_taken,
+				"observations": observations,
+				"artifacts": artifacts,
+				"next_recommended_action": next_action,
+			}
+
 		# Some tool-enabled calls may return tool calls with no content.
 		return {
 			"step": step.get("step"),

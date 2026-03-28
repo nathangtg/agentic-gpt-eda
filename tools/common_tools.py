@@ -26,10 +26,43 @@ def _to_python(value: Any) -> Any:
     if isinstance(value, (np.integer, np.int64, np.int32)):
         return int(value)
     if isinstance(value, (np.floating, np.float64, np.float32)):
+        if np.isnan(value):
+            return None
         return float(value)
     if isinstance(value, np.bool_):
         return bool(value)
     return value
+
+
+def _json_ready(value: Any) -> Any:
+    value = _to_python(value)
+
+    if isinstance(value, dict):
+        out: dict[Any, Any] = {}
+        for key, val in value.items():
+            key = _to_python(key)
+            if not isinstance(key, (str, int, float, bool)) and key is not None:
+                key = str(key)
+            out[key] = _json_ready(val)
+        return out
+
+    if isinstance(value, (list, tuple, set)):
+        return [_json_ready(item) for item in value]
+
+    if isinstance(value, np.ndarray):
+        return [_json_ready(item) for item in value.tolist()]
+
+    if isinstance(value, (pd.Series, pd.Index)):
+        return [_json_ready(item) for item in value.tolist()]
+
+    if isinstance(value, (pd.Timestamp, pd.Timedelta)):
+        return str(value)
+
+    return value
+
+
+def _safe_json_dumps(value: Any) -> str:
+    return json.dumps(_json_ready(value), indent=2)
 
 
 def _parse_column_list(columns: str) -> list[str]:
@@ -76,8 +109,10 @@ def load_dataset(name: str, path: str) -> str:
         df = pd.read_csv(path)
     elif ".json" in path:
         df = pd.read_json(path)
-    elif ".xlsx" in path: 
+    elif ".xlsx" in path or ".xls" in path:
         df = pd.read_excel(path)
+    else:
+        return "Unsupported file type. Please provide a .csv, .json, .xlsx, or .xls file."
 
     df_store[name] = df
     return f"Dataset '{name}' loaded successfully with {len(df)} rows and {len(df.columns)} columns."
@@ -93,7 +128,7 @@ def list_loaded_datasets() -> str:
         }
         for name, df in df_store.items()
     }
-    return json.dumps(datasets, indent=2)
+    return _safe_json_dumps(datasets)
 
 @tool
 def get_dataset_info(name: str) -> str:
@@ -109,7 +144,7 @@ def get_dataset_info(name: str) -> str:
         "data_types": df.dtypes.apply(lambda x: str(x)).to_dict(),
         "missing_values": df.isnull().sum().to_dict()
     }
-    return json.dumps(info, indent=2)
+    return _safe_json_dumps(info)
 
 
 @tool
@@ -136,7 +171,7 @@ def get_data_quality_report(name: str) -> str:
             for col in df.columns
         },
     }
-    return json.dumps(report, indent=2)
+    return _safe_json_dumps(report)
 
 @tool
 def get_column_stats(name: str, column: str) -> str:
@@ -159,7 +194,7 @@ def get_column_stats(name: str, column: str) -> str:
         "max": col_data.max() if pd.api.types.is_numeric_dtype(col_data) else None,
         "top_values": col_data.value_counts().head(5).to_dict()
     }
-    return json.dumps(stats, indent=2)
+    return _safe_json_dumps(stats)
 
 
 @tool
@@ -213,7 +248,7 @@ def get_numeric_distribution_report(name: str, columns: str = "", bins: int = 10
             },
         }
 
-    return json.dumps(report, indent=2)
+    return _safe_json_dumps(report)
 
 
 @tool
@@ -246,7 +281,7 @@ def get_correlation_report(name: str, target: str = "", method: str = "pearson",
                 for k, v in ranked.head(max(1, top_k)).to_dict().items()
             },
         }
-        return json.dumps(result, indent=2)
+        return _safe_json_dumps(result)
 
     return corr.to_json(orient="split")
 
@@ -380,4 +415,4 @@ def fit_regularized_feature_importance(
         "metrics": {k: _to_python(v) for k, v in metrics.items()},
         "top_feature_impacts": feature_impacts[:25],
     }
-    return json.dumps(result, indent=2)
+    return _safe_json_dumps(result)

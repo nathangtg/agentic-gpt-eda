@@ -9,8 +9,14 @@ from langchain_openai import ChatOpenAI
 
 class BaseAgent:
     def __init__(self, llm: ChatOpenAI | None = None, tools: Sequence[Any] | None = None):
+        self.tools = list(tools) if tools else []
+        self.tool_map = {
+            getattr(tool, "name", ""): tool
+            for tool in self.tools
+            if getattr(tool, "name", "")
+        }
         base_llm = llm or self.create_default_llm()
-        self.llm = base_llm.bind_tools(list(tools)) if tools else base_llm
+        self.llm = base_llm.bind_tools(self.tools) if self.tools else base_llm
 
     @classmethod
     def create_default_llm(cls) -> ChatOpenAI:
@@ -69,6 +75,37 @@ class BaseAgent:
             raise ValueError(f"Parsed JSON must be a top-level {expected_name}.")
 
         return parsed
+
+    def execute_tool_call(self, tool_call: dict[str, Any]) -> dict[str, Any]:
+        name = str(tool_call.get("name", ""))
+        args = tool_call.get("args", {})
+
+        if name not in self.tool_map:
+            return {
+                "name": name,
+                "args": args,
+                "ok": False,
+                "error": f"Tool '{name}' is not registered.",
+            }
+
+        tool = self.tool_map[name]
+        try:
+            output = tool.invoke(args)
+            if not isinstance(output, str):
+                output = json.dumps(output, ensure_ascii=False)
+            return {
+                "name": name,
+                "args": args,
+                "ok": True,
+                "output": output,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "name": name,
+                "args": args,
+                "ok": False,
+                "error": str(exc),
+            }
 
     def run(self, input: str) -> str:
         raise NotImplementedError("Subclasses must implement the run method.")
