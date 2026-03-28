@@ -1,6 +1,6 @@
 <div align="center">
 
-# Agentic EDA
+# Agentic GPT EDA
 
 ### Open-source AI-powered Exploratory Data Analysis with execution-first workflows
 
