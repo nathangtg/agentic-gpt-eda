@@ -1,12 +1,12 @@
-from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
+from langchain_openai import ChatOpenAI
 
-class ReasonAgent:
-    def __init__(self, model: str, api_key: str, base_url: str):
-        self.model = model
-        self.api_key = api_key
-        self.base_url = base_url
+from agents.base import BaseAgent
+
+class ReasonAgent(BaseAgent):
+    def __init__(self, llm: ChatOpenAI | None = None):
+        super().__init__(llm=llm)
 
         self.prompt = ChatPromptTemplate.from_messages([
             (
@@ -39,14 +39,9 @@ class ReasonAgent:
         ])
 
         self.output_parser = JsonOutputParser()
-        self.llm = ChatOpenAI(
-            model=self.model,
-            api_key=self.api_key,
-            base_url=self.base_url
-        )
 
     def generate_insights(self, query: str):
         formatted_prompt = self.prompt.format_messages(query=query)
-        response = self.llm(formatted_prompt)
-        insights = self.output_parser.parse(response)
+        response = self.llm.invoke(formatted_prompt)
+        insights = self.output_parser.parse(response.content)
         return insights
