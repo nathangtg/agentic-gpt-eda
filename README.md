@@ -73,6 +73,34 @@ uv run streamlit run streamlit_app.py
 
 Open the local Streamlit URL shown in terminal.
 
+## Run With Docker
+
+You can run the Streamlit app with optional Postgres + Redis services for persistence and memory-style workflows.
+
+### Build and run
+
+```bash
+docker compose up --build
+```
+
+Services:
+
+- App: http://localhost:8501
+- Postgres: localhost:5432
+- Redis: localhost:6379
+
+### Stop stack
+
+```bash
+docker compose down
+```
+
+### Remove containers and volumes
+
+```bash
+docker compose down -v
+```
+
 ## How It Works
 
 1. Upload dataset in sidebar
