@@ -1,12 +1,14 @@
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_openai import ChatOpenAI
+from collections.abc import Sequence
+from typing import Any
 
 from agents.base import BaseAgent
 
 class ReasonAgent(BaseAgent):
-    def __init__(self, llm: ChatOpenAI | None = None):
-        super().__init__(llm=llm)
+    def __init__(self, llm: ChatOpenAI | None = None, tools: Sequence[Any] | None = None):
+        super().__init__(llm=llm, tools=tools)
 
         self.prompt = ChatPromptTemplate.from_messages([
             (
