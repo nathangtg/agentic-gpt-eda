@@ -126,6 +126,59 @@ def _chat_answer(question: str, context: str) -> str:
     return response.content if hasattr(response, "content") else str(response)
 
 
+def _chat_stream(question: str, context: str):
+    llm = _get_chat_llm()
+    prompt = (
+        "You are a BI data assistant inside an EDA dashboard. "
+        "Answer clearly for non-technical and technical users. "
+        "Ground your answer in the provided dataset context and latest insights. "
+        "If data is insufficient, say what additional data is needed.\n\n"
+        "Citation tags you can use: [C1], [C2], [C3], [C4].\n"
+        "Use them inline where relevant.\n"
+        "- [C1] Dataset profile (schema, dtypes, missingness)\n"
+        "- [C2] BI overview metrics and baseline charts\n"
+        "- [C3] Orchestrated AI plan/execution outputs\n"
+        "- [C4] Regularized feature impact analysis\n\n"
+        f"Context:\n{context}\n\n"
+        f"User question:\n{question}\n\n"
+        "Return concise markdown with:\n"
+        "1) Direct answer\n"
+        "2) Why this matters\n"
+        "3) Suggested next chart or analysis step"
+    )
+
+    for chunk in llm.stream(prompt):
+        piece = getattr(chunk, "content", "")
+        if isinstance(piece, str) and piece:
+            yield piece
+
+
+def _render_chat_sources(answer: str, has_pipeline_result: bool) -> None:
+    source_map = {
+        "[C1]": "Dataset profile",
+        "[C2]": "BI overview and baseline charts",
+        "[C3]": "Orchestrated AI outputs",
+        "[C4]": "Regularized feature impact",
+    }
+
+    used_tags = [tag for tag in source_map if tag in answer]
+    if not used_tags:
+        used_tags = ["[C1]", "[C2]"] + (["[C3]"] if has_pipeline_result else [])
+
+    st.markdown("**Sources**")
+    for tag in used_tags:
+        label = source_map[tag]
+        if tag == "[C3]" and not has_pipeline_result:
+            continue
+        st.markdown(f"- {tag} {label}")
+
+    st.markdown("**Navigation**")
+    st.markdown("- Open the `Overview` tab for profile-level evidence")
+    st.markdown("- Open the `Analytics` tab for charts and model impact")
+    if has_pipeline_result:
+        st.markdown("- Open the `Orchestrated AI` tab for execution trace and artifacts")
+
+
 def _render_plan(plan: list[dict[str, Any]]) -> None:
     st.markdown("### Execution Plan")
     if not plan:
@@ -623,22 +676,46 @@ with tab_chat:
     for msg in st.session_state.chat_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
+            if msg["role"] == "assistant":
+                _render_chat_sources(
+                    msg["content"],
+                    has_pipeline_result=isinstance(st.session_state.pipeline_result, dict),
+                )
+
+    st.markdown("**Quick prompts**")
+    chip_col1, chip_col2, chip_col3 = st.columns(3)
+    if chip_col1.button("What are my top risk drivers?", key="chip_risk_drivers"):
+        st.session_state["chat_autoprompt"] = "What are the top risk drivers in this dataset?"
+        st.rerun()
+    if chip_col2.button("What should I clean first?", key="chip_clean_first"):
+        st.session_state["chat_autoprompt"] = "What data quality issues should I clean first and why?"
+        st.rerun()
+    if chip_col3.button("Which chart should I inspect next?", key="chip_next_chart"):
+        st.session_state["chat_autoprompt"] = "Which chart should I inspect next and what pattern should I look for?"
+        st.rerun()
 
     user_prompt = st.chat_input("Ask about patterns, anomalies, feature impact, or next best analysis step...")
-    if user_prompt and user_prompt.strip():
-        st.session_state.chat_messages.append({"role": "user", "content": user_prompt.strip()})
+    auto_prompt = st.session_state.pop("chat_autoprompt", None)
+    prompt_to_send = user_prompt.strip() if isinstance(user_prompt, str) and user_prompt.strip() else auto_prompt
+    if prompt_to_send and str(prompt_to_send).strip():
+        prompt_text = str(prompt_to_send).strip()
+        st.session_state.chat_messages.append({"role": "user", "content": prompt_text})
         with st.chat_message("user"):
-            st.markdown(user_prompt.strip())
+            st.markdown(prompt_text)
 
         with st.chat_message("assistant"):
-            with st.spinner("Thinking..."):
-                context_text = _build_chat_context(
-                    dataset_name=active_dataset,
-                    df=df,
-                    quality=quality if isinstance(quality, dict) else {},
-                    pipeline_result=st.session_state.pipeline_result,
-                )
-                answer = _chat_answer(user_prompt.strip(), context=context_text)
-            st.markdown(answer)
+            context_text = _build_chat_context(
+                dataset_name=active_dataset,
+                df=df,
+                quality=quality if isinstance(quality, dict) else {},
+                pipeline_result=st.session_state.pipeline_result,
+            )
+            answer = st.write_stream(_chat_stream(prompt_text, context=context_text))
+            if not isinstance(answer, str):
+                answer = str(answer)
+            _render_chat_sources(
+                answer,
+                has_pipeline_result=isinstance(st.session_state.pipeline_result, dict),
+            )
 
         st.session_state.chat_messages.append({"role": "assistant", "content": answer})
