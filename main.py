@@ -5,7 +5,16 @@ from agents.executor import ExecutorAgent
 from agents.orchestrator import EDAOrchestrator
 from agents.planner import PlannerAgent
 from agents.reason import ReasonAgent
-from tools.common_tools import get_column_stats, get_dataset_info, load_dataset
+from tools.common_tools import (
+    fit_regularized_feature_importance,
+    get_column_stats,
+    get_correlation_report,
+    get_data_quality_report,
+    get_dataset_info,
+    get_numeric_distribution_report,
+    list_loaded_datasets,
+    load_dataset,
+)
 from tools.exploratory_tools import (
     generate_bar_chart,
     generate_correlation_matrix,
@@ -20,8 +29,13 @@ llm = BaseAgent.create_default_llm()
 def load_tools():
     return [
         load_dataset,
+        list_loaded_datasets,
         get_dataset_info,
+        get_data_quality_report,
         get_column_stats,
+        get_numeric_distribution_report,
+        get_correlation_report,
+        fit_regularized_feature_importance,
         summarize_dataset,
         generate_correlation_matrix,
         get_top_n_unique_values,
