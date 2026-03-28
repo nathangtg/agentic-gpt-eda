@@ -5,8 +5,8 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "langchain",
-    "langflow",
-    "langgraph",
-    "langsmith",
+    "langchain>=0.3.28",
+    "langflow>=1.8.3",
+    "langgraph>=1.0.1",
+    "langsmith>=0.7.22",
 ]
