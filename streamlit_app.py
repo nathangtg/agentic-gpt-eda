@@ -1,4 +1,6 @@
 import json
+from pathlib import Path
+from typing import Any
 
 import pandas as pd
 import streamlit as st
@@ -9,7 +11,6 @@ from tools.common_tools import (
     fit_regularized_feature_importance,
     get_data_quality_report,
     get_dataset_info,
-    load_dataset,
 )
 from tools.exploratory_tools import (
     generate_bar_chart,
@@ -26,22 +27,159 @@ st.caption("Plan, execute, reason, and validate insights with grounded dataset t
 if "active_dataset" not in st.session_state:
     st.session_state.active_dataset = "main"
 
+if "pipeline_result" not in st.session_state:
+    st.session_state.pipeline_result = None
+
+
+def _read_uploaded_dataset(uploaded_file) -> pd.DataFrame:
+    suffix = Path(uploaded_file.name).suffix.lower()
+    if suffix == ".csv":
+        return pd.read_csv(uploaded_file)
+    if suffix == ".json":
+        return pd.read_json(uploaded_file)
+    if suffix in {".xlsx", ".xls"}:
+        return pd.read_excel(uploaded_file)
+
+    raise ValueError("Unsupported file type. Please upload CSV, JSON, or XLSX.")
+
+
+def _to_str_list(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value]
+    if value is None:
+        return []
+    return [str(value)]
+
+
+def _render_plan(plan: list[dict[str, Any]]) -> None:
+    st.markdown("### Execution Plan")
+    if not plan:
+        st.warning("No plan steps were returned.")
+        return
+
+    for step in plan:
+        step_num = step.get("step", "?")
+        title = step.get("title", "Untitled step")
+        objective = step.get("objective", "")
+        methods = _to_str_list(step.get("methods", []))
+        expected_output = step.get("expected_output", "")
+
+        with st.expander(f"Step {step_num}: {title}", expanded=False):
+            if objective:
+                st.markdown(f"**Objective:** {objective}")
+            if methods:
+                st.markdown("**Methods:**")
+                for method in methods:
+                    st.markdown(f"- {method}")
+            if expected_output:
+                st.markdown(f"**Expected output:** {expected_output}")
+
+
+def _render_execution_results(execution_results: list[dict[str, Any]]) -> None:
+    st.markdown("### Step Execution Results")
+    if not execution_results:
+        st.warning("No execution results were returned.")
+        return
+
+    status_counts = {}
+    for result in execution_results:
+        status = str(result.get("status", "unknown"))
+        status_counts[status] = status_counts.get(status, 0) + 1
+
+    metric_cols = st.columns(max(1, len(status_counts)))
+    for idx, (status, count) in enumerate(status_counts.items()):
+        metric_cols[idx].metric(label=f"{status.title()} steps", value=count)
+
+    for result in execution_results:
+        step_num = result.get("step", "?")
+        status = str(result.get("status", "unknown")).lower()
+        badge = "OK" if status == "completed" else "WARN" if status == "needs_input" else "ERR"
+
+        with st.expander(f"[{badge}] Step {step_num} ({status})", expanded=False):
+            actions = _to_str_list(result.get("actions_taken", []))
+            observations = _to_str_list(result.get("observations", []))
+            artifacts = _to_str_list(result.get("artifacts", []))
+            next_action = result.get("next_recommended_action", "")
+
+            if actions:
+                st.markdown("**Actions taken:**")
+                for action in actions:
+                    st.markdown(f"- {action}")
+
+            if observations:
+                st.markdown("**Observations:**")
+                for observation in observations:
+                    st.markdown(f"- {observation}")
+
+            if artifacts:
+                st.markdown("**Artifacts:**")
+                for artifact in artifacts:
+                    st.markdown(f"- {artifact}")
+
+            if next_action:
+                st.markdown(f"**Next recommended action:** {next_action}")
+
+
+def _render_insights(insights: list[dict[str, Any]]) -> None:
+    st.markdown("### Final Insights and Recommendations")
+    if not insights:
+        st.warning("No insights were returned.")
+        return
+
+    insights_rows: list[dict[str, Any]] = []
+    for insight in insights:
+        insights_rows.append(
+            {
+                "insight": insight.get("insight", ""),
+                "confidence": insight.get("confidence", None),
+                "recommended_action": insight.get("recommended_action", ""),
+            }
+        )
+
+    insight_df = pd.DataFrame(insights_rows)
+    if "confidence" in insight_df.columns:
+        insight_df = insight_df.sort_values(by="confidence", ascending=False, na_position="last")
+
+    st.dataframe(insight_df, use_container_width=True)
+
+    top_insights = insight_df.head(3).to_dict(orient="records")
+    st.markdown("**Executive summary:**")
+    for row in top_insights:
+        insight_text = row.get("insight") or "No insight text"
+        action_text = row.get("recommended_action") or "No recommended action"
+        confidence = row.get("confidence")
+        conf_text = f" (confidence: {confidence:.2f})" if isinstance(confidence, (int, float)) else ""
+        st.markdown(f"- {insight_text}{conf_text}. Action: {action_text}")
+
 
 with st.sidebar:
     st.header("Dataset")
-    dataset_name = st.text_input("Dataset name", value=st.session_state.active_dataset)
-    dataset_path = st.text_input("Dataset path", value="")
+    uploaded_file = st.file_uploader(
+        "Upload dataset",
+        type=["csv", "json", "xlsx", "xls"],
+        help="Supported formats: CSV, JSON, XLSX",
+    )
+    default_name = (
+        Path(uploaded_file.name).stem if uploaded_file is not None else st.session_state.active_dataset
+    )
+    dataset_name = st.text_input("Dataset name", value=default_name)
 
-    if st.button("Load dataset", type="primary"):
-        if not dataset_path.strip():
-            st.error("Please provide a dataset path.")
+    if st.button("Load uploaded dataset", type="primary"):
+        if uploaded_file is None:
+            st.error("Please upload a dataset file first.")
+        elif not dataset_name.strip():
+            st.error("Please provide a dataset name.")
         else:
             try:
-                message = load_dataset.invoke({"name": dataset_name, "path": dataset_path})
+                df_store[dataset_name] = _read_uploaded_dataset(uploaded_file)
                 st.session_state.active_dataset = dataset_name
-                st.success(message)
+                rows = len(df_store[dataset_name])
+                cols = len(df_store[dataset_name].columns)
+                st.success(
+                    f"Dataset '{dataset_name}' uploaded successfully with {rows} rows and {cols} columns."
+                )
             except Exception as exc:  # noqa: BLE001
-                st.error(f"Failed to load dataset: {exc}")
+                st.error(f"Failed to load uploaded dataset: {exc}")
 
 active_dataset = st.session_state.active_dataset
 
@@ -185,14 +323,21 @@ max_steps = st.slider("Max plan steps", min_value=1, max_value=10, value=3)
 if st.button("Run planner -> executor -> reasoner"):
     with st.spinner("Running orchestrated analysis..."):
         try:
-            result = run_eda_pipeline(query=query, max_steps=max_steps)
-            st.markdown("Plan")
-            st.json(result.get("plan", []))
-
-            st.markdown("Execution results")
-            st.json(result.get("execution_results", []))
-
-            st.markdown("Insights")
-            st.json(result.get("insights", []))
+            st.session_state.pipeline_result = run_eda_pipeline(query=query, max_steps=max_steps)
         except Exception as exc:  # noqa: BLE001
             st.error(f"Pipeline failed: {exc}")
+
+result = st.session_state.pipeline_result
+if result:
+    st.success("Analysis complete. Review the readable report below.")
+
+    plan_result = result.get("plan", [])
+    execution_result = result.get("execution_results", [])
+    insights_result = result.get("insights", [])
+
+    _render_plan(plan_result if isinstance(plan_result, list) else [])
+    _render_execution_results(execution_result if isinstance(execution_result, list) else [])
+    _render_insights(insights_result if isinstance(insights_result, list) else [])
+
+    with st.expander("Raw JSON output (debug)", expanded=False):
+        st.json(result)

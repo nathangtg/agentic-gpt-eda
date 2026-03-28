@@ -2,7 +2,6 @@ import json
 from collections.abc import Sequence
 from typing import Any
 
-from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 
@@ -19,14 +18,14 @@ class ExecutorAgent(BaseAgent):
 				"You are an EDA execution agent. Execute or operationalize one EDA step at a time. "
 				"Use available tools when relevant and return a strict JSON object only.\n\n"
 				"Required JSON schema:\n"
-				"{\n"
+				"{{\n"
 				"  \"step\": int,\n"
 				"  \"status\": \"completed\" | \"needs_input\" | \"failed\",\n"
 				"  \"actions_taken\": [string],\n"
 				"  \"observations\": [string],\n"
 				"  \"artifacts\": [string],\n"
 				"  \"next_recommended_action\": string\n"
-				"}\n\n"
+				"}}\n\n"
 				"Constraints:\n"
 				"- Tie outputs to the requested step objective and methods\n"
 				"- Keep actions concrete and reproducible\n"
@@ -40,8 +39,6 @@ class ExecutorAgent(BaseAgent):
 			),
 		])
 
-		self.output_parser = JsonOutputParser()
-
 	def execute_step(self, step: dict[str, Any], context: str = "") -> dict[str, Any]:
 		formatted_prompt = self.prompt.format_messages(
 			context=context or "No prior execution context provided.",
@@ -50,7 +47,7 @@ class ExecutorAgent(BaseAgent):
 		response = self.llm.invoke(formatted_prompt)
 
 		if response.content:
-			return self.output_parser.parse(response.content)
+			return self.parse_json_response(response.content, expected_type=dict)
 
 		# Some tool-enabled calls may return tool calls with no content.
 		return {

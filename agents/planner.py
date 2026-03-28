@@ -1,5 +1,4 @@
 from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import JsonOutputParser 
 from langchain_openai import ChatOpenAI
 from collections.abc import Sequence
 from typing import Any
@@ -43,12 +42,10 @@ class PlannerAgent(BaseAgent):
             ("user", "{query}")
         ])
 
-        self.output_parser = JsonOutputParser()
-
     def generate_plan(self, query: str):
         formatted_prompt = self.prompt.format_messages(query=query)
         response = self.llm.invoke(formatted_prompt)
-        plan = self.output_parser.parse(response.content)
+        plan = self.parse_json_response(response.content, expected_type=list)
         return plan
     
     
