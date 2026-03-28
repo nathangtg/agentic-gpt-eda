@@ -43,8 +43,8 @@ Most AI data apps stop at generated text. This project focuses on execution-back
 ### 1. Clone
 
 ```bash
-git clone https://github.com/<your-org>/agentic-eda.git
-cd agentic-eda
+git clone https://github.com/nathangtg/agentic-gpt-eda.git
+cd agentic-gpt-eda
 ```
 
 ### 2. Configure environment
@@ -116,7 +116,7 @@ docker compose down -v
 ## Project Structure
 
 ```text
-agentic-eda/
+agentic-gpt-eda/
 	agents/
 		base.py
 		planner.py
