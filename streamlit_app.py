@@ -426,205 +426,219 @@ if active_dataset not in df_store:
 
 
 df = df_store[active_dataset]
-left_col, right_col = st.columns([1, 1])
+quality = {}
+try:
+    info = json.loads(get_dataset_info.invoke({"name": active_dataset}))
+    quality = json.loads(get_data_quality_report.invoke({"name": active_dataset}))
+except Exception as exc:  # noqa: BLE001
+    st.error(f"Unable to build profile: {exc}")
 
-with left_col:
-    st.subheader("Dataset preview")
-    st.dataframe(df.head(100), use_container_width=True)
+numeric_cols = df.select_dtypes(include="number").columns.tolist()
+category_cols = [col for col in df.columns if col not in numeric_cols]
 
-with right_col:
-    st.subheader("Dataset profile")
-    quality = {}
-    try:
-        info = json.loads(get_dataset_info.invoke({"name": active_dataset}))
-        quality = json.loads(get_data_quality_report.invoke({"name": active_dataset}))
-        st.json(info)
-        st.json(quality)
-    except Exception as exc:  # noqa: BLE001
-        st.error(f"Unable to build profile: {exc}")
+tab_overview, tab_analytics, tab_orchestrated, tab_chat = st.tabs(
+    ["Overview", "Analytics", "Orchestrated AI", "AI Chat"]
+)
 
-st.divider()
-_render_bi_dashboard(df, quality if isinstance(quality, dict) else {})
+with tab_overview:
+    left_col, right_col = st.columns([1, 1])
 
-with st.sidebar:
+    with left_col:
+        st.subheader("Dataset Preview")
+        st.dataframe(df.head(100), use_container_width=True)
+
+    with right_col:
+        st.subheader("Dataset Profile")
+        if info if "info" in locals() else None:
+            st.json(info)
+        if quality:
+            st.json(quality)
+
     st.divider()
-    st.header("Chat Assistant")
-    st.caption("Ask questions about the current dataset and AI analysis.")
+    _render_bi_dashboard(df, quality if isinstance(quality, dict) else {})
+
+with tab_analytics:
+    st.subheader("Interactive Charts")
+    chart_left, chart_right, chart_bottom = st.columns([1, 1, 1])
+
+    with chart_left:
+        st.markdown("Histogram")
+        if numeric_cols:
+            hist_col = st.selectbox("Numeric column", options=numeric_cols, key="hist_col")
+            hist_bins = st.slider("Bins", min_value=5, max_value=50, value=15, key="hist_bins")
+            hist_raw = generate_histogram.invoke(
+                {"name": active_dataset, "column": hist_col, "bins": hist_bins}
+            )
+            hist_json = json.loads(hist_raw)
+            hist_df = pd.DataFrame(
+                {
+                    "bin": [
+                        f"{hist_json['bin_edges'][i]:.2f}-{hist_json['bin_edges'][i + 1]:.2f}"
+                        for i in range(len(hist_json["counts"]))
+                    ],
+                    "count": hist_json["counts"],
+                }
+            )
+            st.bar_chart(hist_df.set_index("bin"), use_container_width=True)
+        else:
+            st.warning("No numeric columns available.")
+
+    with chart_right:
+        st.markdown("Category Frequency")
+        if category_cols:
+            bar_col = st.selectbox("Categorical column", options=category_cols, key="bar_col")
+            top_n = st.slider("Top N", min_value=5, max_value=50, value=20, key="bar_top_n")
+            bar_raw = generate_bar_chart.invoke({"name": active_dataset, "column": bar_col, "n": top_n})
+            bar_json = json.loads(bar_raw)
+            bar_df = pd.DataFrame(
+                {
+                    "category": list(bar_json.keys()),
+                    "count": list(bar_json.values()),
+                }
+            )
+            st.bar_chart(bar_df.set_index("category"), use_container_width=True)
+        else:
+            st.warning("No categorical columns available.")
+
+    with chart_bottom:
+        st.markdown("Correlation Matrix")
+        if len(numeric_cols) >= 2:
+            corr_method = st.selectbox("Method", options=["pearson", "spearman", "kendall"], key="corr_method")
+            corr_raw = generate_correlation_matrix.invoke({"name": active_dataset, "method": corr_method})
+            corr_json = json.loads(corr_raw)
+            corr_df = pd.DataFrame(
+                data=corr_json["data"],
+                columns=corr_json["columns"],
+                index=corr_json["index"],
+            )
+            st.dataframe(corr_df, use_container_width=True)
+        else:
+            st.warning("Need at least 2 numeric columns.")
+
+    st.divider()
+    st.subheader("Regularized Feature Impact")
+
+    if len(df.columns) >= 2:
+        target_col = st.selectbox("Target column", options=df.columns.tolist(), key="target_col")
+        reg_col1, reg_col2, reg_col3, reg_col4 = st.columns(4)
+
+        with reg_col1:
+            reg_type = st.selectbox("Regularization", options=["ridge", "lasso"], key="reg_type")
+        with reg_col2:
+            model_type = st.selectbox(
+                "Model type", options=["auto", "regression", "classification"], key="model_type"
+            )
+        with reg_col3:
+            alpha = st.number_input("Alpha", min_value=0.0001, max_value=100.0, value=1.0, step=0.1, key="alpha")
+        with reg_col4:
+            test_size = st.slider("Test split", min_value=0.1, max_value=0.4, value=0.2, step=0.05, key="test_size")
+
+        if st.button("Run regularized model", key="run_regularized"):
+            try:
+                reg_raw = fit_regularized_feature_importance.invoke(
+                    {
+                        "name": active_dataset,
+                        "target_column": target_col,
+                        "regularization": reg_type,
+                        "model_type": model_type,
+                        "alpha": float(alpha),
+                        "test_size": float(test_size),
+                    }
+                )
+                reg_json = json.loads(reg_raw)
+
+                st.markdown("Metrics")
+                st.json(reg_json.get("metrics", {}))
+
+                impact_df = pd.DataFrame(reg_json.get("top_feature_impacts", []))
+                if not impact_df.empty:
+                    impact_df = impact_df.head(20)
+                    st.markdown("Top feature impacts")
+                    st.bar_chart(
+                        impact_df.set_index("feature")["absolute_coefficient"],
+                        use_container_width=True,
+                    )
+                else:
+                    st.warning("No feature impacts returned.")
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Regularized analysis failed: {exc}")
+    else:
+        st.warning("Dataset needs at least one feature and one target column for regularized modeling.")
+
+with tab_orchestrated:
+    st.subheader("Orchestrated LLM Analysis")
+
+    query = st.text_area(
+        "Analysis question",
+        value="Analyze this dataset and identify key risk drivers and data quality issues.",
+        key="orchestrated_query",
+    )
+    run_full_plan = st.checkbox("Execute full plan", value=True, key="run_full_plan")
+    max_steps = None
+    if not run_full_plan:
+        max_steps = st.slider("Max plan steps", min_value=1, max_value=10, value=5, key="max_steps")
+
+    if st.button("Run planner -> executor -> reasoner", key="run_orchestrated"):
+        with st.spinner("Running orchestrated analysis..."):
+            try:
+                pipeline_query = (
+                    f"Dataset already loaded in memory as '{active_dataset}'. "
+                    "Do not call load_dataset unless a valid file path is explicitly provided. "
+                    f"Use dataset name '{active_dataset}' for all tool calls. "
+                    f"User objective: {query}"
+                )
+                st.session_state.pipeline_result = run_eda_pipeline(query=pipeline_query, max_steps=max_steps)
+            except Exception as exc:  # noqa: BLE001
+                st.error(f"Pipeline failed: {exc}")
+
+    result = st.session_state.pipeline_result
+    if result:
+        st.success("Analysis complete. Review the readable report below.")
+
+        plan_result = result.get("plan", [])
+        execution_result = result.get("execution_results", [])
+        insights_result = result.get("insights", [])
+
+        _render_plan_trace(
+            plan_result if isinstance(plan_result, list) else [],
+            execution_result if isinstance(execution_result, list) else [],
+        )
+        _render_plan(plan_result if isinstance(plan_result, list) else [])
+        _render_execution_results(execution_result if isinstance(execution_result, list) else [])
+        _render_generated_visuals(execution_result if isinstance(execution_result, list) else [])
+        _render_insights(insights_result if isinstance(insights_result, list) else [])
+
+        with st.expander("Raw JSON output (debug)", expanded=False):
+            st.json(result)
+
+with tab_chat:
+    st.subheader("AI Data Assistant")
+    st.caption("Ask questions about the loaded dataset, charts, and orchestrated analysis results.")
+
+    actions_col1, actions_col2 = st.columns([1, 6])
+    if actions_col1.button("Clear Chat", key="clear_chat_main"):
+        st.session_state.chat_messages = []
+        st.rerun()
 
     for msg in st.session_state.chat_messages:
         with st.chat_message(msg["role"]):
             st.markdown(msg["content"])
 
-    with st.form("sidebar_chat_form", clear_on_submit=True):
-        chat_question = st.text_area("Your question", height=90)
-        ask_col, clear_col = st.columns(2)
-        send_clicked = ask_col.form_submit_button("Send")
-        clear_clicked = clear_col.form_submit_button("Clear")
+    user_prompt = st.chat_input("Ask about patterns, anomalies, feature impact, or next best analysis step...")
+    if user_prompt and user_prompt.strip():
+        st.session_state.chat_messages.append({"role": "user", "content": user_prompt.strip()})
+        with st.chat_message("user"):
+            st.markdown(user_prompt.strip())
 
-    if clear_clicked:
-        st.session_state.chat_messages = []
-        st.rerun()
+        with st.chat_message("assistant"):
+            with st.spinner("Thinking..."):
+                context_text = _build_chat_context(
+                    dataset_name=active_dataset,
+                    df=df,
+                    quality=quality if isinstance(quality, dict) else {},
+                    pipeline_result=st.session_state.pipeline_result,
+                )
+                answer = _chat_answer(user_prompt.strip(), context=context_text)
+            st.markdown(answer)
 
-    if send_clicked and chat_question.strip():
-        st.session_state.chat_messages.append({"role": "user", "content": chat_question.strip()})
-        with st.spinner("Thinking..."):
-            context_text = _build_chat_context(
-                dataset_name=active_dataset,
-                df=df,
-                quality=quality if isinstance(quality, dict) else {},
-                pipeline_result=st.session_state.pipeline_result,
-            )
-            answer = _chat_answer(chat_question.strip(), context=context_text)
         st.session_state.chat_messages.append({"role": "assistant", "content": answer})
-        st.rerun()
-
-st.divider()
-st.subheader("Charts")
-chart_left, chart_right, chart_bottom = st.columns([1, 1, 1])
-
-numeric_cols = df.select_dtypes(include="number").columns.tolist()
-category_cols = [col for col in df.columns if col not in numeric_cols]
-
-with chart_left:
-    st.markdown("Histogram")
-    if numeric_cols:
-        hist_col = st.selectbox("Numeric column", options=numeric_cols, key="hist_col")
-        hist_bins = st.slider("Bins", min_value=5, max_value=50, value=15, key="hist_bins")
-        hist_raw = generate_histogram.invoke(
-            {"name": active_dataset, "column": hist_col, "bins": hist_bins}
-        )
-        hist_json = json.loads(hist_raw)
-        hist_df = pd.DataFrame(
-            {
-                "bin": [
-                    f"{hist_json['bin_edges'][i]:.2f}-{hist_json['bin_edges'][i + 1]:.2f}"
-                    for i in range(len(hist_json["counts"]))
-                ],
-                "count": hist_json["counts"],
-            }
-        )
-        st.bar_chart(hist_df.set_index("bin"), use_container_width=True)
-    else:
-        st.warning("No numeric columns available.")
-
-with chart_right:
-    st.markdown("Category frequency")
-    if category_cols:
-        bar_col = st.selectbox("Categorical column", options=category_cols, key="bar_col")
-        top_n = st.slider("Top N", min_value=5, max_value=50, value=20, key="bar_top_n")
-        bar_raw = generate_bar_chart.invoke({"name": active_dataset, "column": bar_col, "n": top_n})
-        bar_json = json.loads(bar_raw)
-        bar_df = pd.DataFrame(
-            {
-                "category": list(bar_json.keys()),
-                "count": list(bar_json.values()),
-            }
-        )
-        st.bar_chart(bar_df.set_index("category"), use_container_width=True)
-    else:
-        st.warning("No categorical columns available.")
-
-with chart_bottom:
-    st.markdown("Correlation matrix")
-    if len(numeric_cols) >= 2:
-        corr_method = st.selectbox("Method", options=["pearson", "spearman", "kendall"])
-        corr_raw = generate_correlation_matrix.invoke({"name": active_dataset, "method": corr_method})
-        corr_json = json.loads(corr_raw)
-        corr_df = pd.DataFrame(
-            data=corr_json["data"],
-            columns=corr_json["columns"],
-            index=corr_json["index"],
-        )
-        st.dataframe(corr_df, use_container_width=True)
-    else:
-        st.warning("Need at least 2 numeric columns.")
-
-st.divider()
-st.subheader("Regularized feature impact")
-
-if len(df.columns) >= 2:
-    target_col = st.selectbox("Target column", options=df.columns.tolist())
-    reg_col1, reg_col2, reg_col3, reg_col4 = st.columns(4)
-
-    with reg_col1:
-        reg_type = st.selectbox("Regularization", options=["ridge", "lasso"])
-    with reg_col2:
-        model_type = st.selectbox("Model type", options=["auto", "regression", "classification"])
-    with reg_col3:
-        alpha = st.number_input("Alpha", min_value=0.0001, max_value=100.0, value=1.0, step=0.1)
-    with reg_col4:
-        test_size = st.slider("Test split", min_value=0.1, max_value=0.4, value=0.2, step=0.05)
-
-    if st.button("Run regularized model"):
-        try:
-            reg_raw = fit_regularized_feature_importance.invoke(
-                {
-                    "name": active_dataset,
-                    "target_column": target_col,
-                    "regularization": reg_type,
-                    "model_type": model_type,
-                    "alpha": float(alpha),
-                    "test_size": float(test_size),
-                }
-            )
-            reg_json = json.loads(reg_raw)
-
-            st.markdown("Metrics")
-            st.json(reg_json.get("metrics", {}))
-
-            impact_df = pd.DataFrame(reg_json.get("top_feature_impacts", []))
-            if not impact_df.empty:
-                impact_df = impact_df.head(20)
-                st.markdown("Top feature impacts")
-                st.bar_chart(impact_df.set_index("feature")["absolute_coefficient"], use_container_width=True)
-            else:
-                st.warning("No feature impacts returned.")
-        except Exception as exc:  # noqa: BLE001
-            st.error(f"Regularized analysis failed: {exc}")
-else:
-    st.warning("Dataset needs at least one feature and one target column for regularized modeling.")
-
-st.divider()
-st.subheader("Orchestrated LLM analysis")
-
-query = st.text_area(
-    "Analysis question",
-    value="Analyze this dataset and identify key risk drivers and data quality issues.",
-)
-run_full_plan = st.checkbox("Execute full plan", value=True)
-max_steps = None
-if not run_full_plan:
-    max_steps = st.slider("Max plan steps", min_value=1, max_value=10, value=5)
-
-if st.button("Run planner -> executor -> reasoner"):
-    with st.spinner("Running orchestrated analysis..."):
-        try:
-            pipeline_query = (
-                f"Dataset already loaded in memory as '{active_dataset}'. "
-                "Do not call load_dataset unless a valid file path is explicitly provided. "
-                f"Use dataset name '{active_dataset}' for all tool calls. "
-                f"User objective: {query}"
-            )
-            st.session_state.pipeline_result = run_eda_pipeline(query=pipeline_query, max_steps=max_steps)
-        except Exception as exc:  # noqa: BLE001
-            st.error(f"Pipeline failed: {exc}")
-
-result = st.session_state.pipeline_result
-if result:
-    st.success("Analysis complete. Review the readable report below.")
-
-    plan_result = result.get("plan", [])
-    execution_result = result.get("execution_results", [])
-    insights_result = result.get("insights", [])
-
-    _render_plan_trace(
-        plan_result if isinstance(plan_result, list) else [],
-        execution_result if isinstance(execution_result, list) else [],
-    )
-    _render_plan(plan_result if isinstance(plan_result, list) else [])
-    _render_execution_results(execution_result if isinstance(execution_result, list) else [])
-    _render_generated_visuals(execution_result if isinstance(execution_result, list) else [])
-    _render_insights(insights_result if isinstance(insights_result, list) else [])
-
-    with st.expander("Raw JSON output (debug)", expanded=False):
-        st.json(result)
