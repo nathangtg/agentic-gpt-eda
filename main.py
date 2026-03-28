@@ -1,6 +1,8 @@
-def main():
-    print("Hello from agentic-eda!")
+from agents.base import BaseAgent
+from agents.planner import PlannerAgent
+from agents.reason import ReasonAgent
 
+llm = BaseAgent.create_default_llm()
 
-if __name__ == "__main__":
-    main()
+planner = PlannerAgent(llm=llm)
+reasoner = ReasonAgent(llm=llm)
