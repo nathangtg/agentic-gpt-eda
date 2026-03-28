@@ -71,7 +71,7 @@ def _build_preprocessor(X: pd.DataFrame) -> tuple[ColumnTransformer, list[str], 
 
 @tool
 def load_dataset(name: str, path: str) -> str:
-    # Load dataset from a file and store it in the df_store with the given name
+    """Load a dataset from CSV, JSON, or XLSX into the in-memory store."""
     if ".csv" in path:
         df = pd.read_csv(path)
     elif ".json" in path:
@@ -97,7 +97,7 @@ def list_loaded_datasets() -> str:
 
 @tool
 def get_dataset_info(name: str) -> str:
-    # Get basic information about the dataset
+    """Return schema, dtypes, and missing-value counts for a loaded dataset."""
     if name not in df_store:
         return f"Dataset '{name}' not found."
 
@@ -140,7 +140,7 @@ def get_data_quality_report(name: str) -> str:
 
 @tool
 def get_column_stats(name: str, column: str) -> str:
-    # Get statistics for a specific column in the dataset
+    """Return descriptive stats and top values for a specific dataset column."""
     if name not in df_store:
         return f"Dataset '{name}' not found."
     

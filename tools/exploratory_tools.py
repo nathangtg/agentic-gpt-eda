@@ -8,6 +8,7 @@ from tools.common_tools import df_store
 
 @tool
 def summarize_dataset(name: str) -> str:
+    """Return a compact summary of rows, columns, dtypes, and missing values."""
     if name not in df_store:
         return f"Dataset '{name}' not found."
 
@@ -23,6 +24,7 @@ def summarize_dataset(name: str) -> str:
 
 @tool
 def generate_correlation_matrix(name: str, method: str = "pearson") -> str:
+    """Compute a numeric correlation matrix for a loaded dataset."""
     if name not in df_store:
         return f"Dataset '{name}' not found."
 
@@ -39,6 +41,7 @@ def generate_correlation_matrix(name: str, method: str = "pearson") -> str:
 
 @tool
 def get_top_n_unique_values(name: str, column: str, n: int = 5) -> str:
+    """Return top-N most frequent values for a dataset column."""
     if name not in df_store:
         return f"Dataset '{name}' not found."
 
@@ -51,6 +54,7 @@ def get_top_n_unique_values(name: str, column: str, n: int = 5) -> str:
 
 @tool
 def generate_histogram(name: str, column: str, bins: int = 10) -> str:
+    """Compute histogram bin edges and counts for a numeric column."""
     if name not in df_store:
         return f"Dataset '{name}' not found."
 
@@ -71,6 +75,7 @@ def generate_histogram(name: str, column: str, bins: int = 10) -> str:
 
 @tool
 def generate_bar_chart(name: str, column: str, n: int = 20) -> str:
+    """Return top category frequencies for a categorical column."""
     if name not in df_store:
         return f"Dataset '{name}' not found."
 
