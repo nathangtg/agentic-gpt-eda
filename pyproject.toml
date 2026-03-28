@@ -9,4 +9,8 @@ dependencies = [
     "langflow>=1.8.3",
     "langgraph>=1.0.1",
     "langsmith>=0.7.22",
+    "numpy>=1.26.0",
+    "openpyxl>=3.1.5",
+    "pandas>=2.2.0",
+    "scikit-learn>=1.5.0",
 ]
