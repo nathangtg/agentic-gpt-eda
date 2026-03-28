@@ -1,4 +1,5 @@
 from agents.base import BaseAgent
+from agents.executor import ExecutorAgent
 from agents.planner import PlannerAgent
 from agents.reason import ReasonAgent
 from tools.common_tools import get_column_stats, get_dataset_info, load_dataset
@@ -29,3 +30,4 @@ def load_tools():
 tools = load_tools()
 planner = PlannerAgent(llm=llm, tools=tools)
 reasoner = ReasonAgent(llm=llm, tools=tools)
+executor = ExecutorAgent(llm=llm, tools=tools)
